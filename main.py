@@ -36,37 +36,6 @@ def getCoordsFromAddr(addr):
                 return None
 
 
-# not free
-def getDistGmaps(addrFrom, addrTo):
-    gmaps = googlemaps.Client(key=mapsSecretKey)
-    dist = gmaps.distance_matrix(addrFrom, addrTo)['rows'][0]['elements'][0]
-    return dist
-
-
-# API: https://github.com/Project-OSRM/osrm-backend/blob/master/docs/http.md
-# broken
-def getDistOSRM(addrFrom, addrTo):
-    apiUrl = "http://router.project-osrm.org"
-    profile = "foot"
-
-    # annotations: we only request distance
-    # sources/destination: else, every combination is tried and a 2x2 matrix is returned
-    requestUrl = apiUrl+"/route/v1/"+profile+'/' + \
-        addrFrom+';'+addrTo+"?annotations=true"
-    resp = requests.get(requestUrl)
-    if resp.status_code == 200 and resp.text != '{}':
-        try:
-            osrmJsonPayload = json.loads(resp.text)
-            print(osrmJsonPayload["routes"][0]["distance"])
-            dist = osrmJsonPayload["routes"][0][0]
-            return dist
-        except Exception as err:
-            print(err)
-            return None
-
-    return None
-
-
 # API: https://openrouteservice.org/dev/#/api-docs/v2/directions/{profile}/get
 def getDistORS(addrFrom, addrTo):
     apiUrl = "https://api.openrouteservice.org"
@@ -89,9 +58,7 @@ def getDistORS(addrFrom, addrTo):
             orsJsonPayload = json.loads(resp.text)
             distance = orsJsonPayload["features"][0]["properties"]["summary"]["distance"]
             duration = orsJsonPayload["features"][0]["properties"]["summary"]["duration"]
-            print(f"[-] Distance={distance}, Duration={duration}")
-
-            return distance
+            return distance, duration
         except Exception as err:
             print(err)
             return None
@@ -100,19 +67,14 @@ def getDistORS(addrFrom, addrTo):
 
 
 def main():
-    #addrFrom = '1 rue Valade, Toulouse'
-    addrFrom = '43.602660,1.041160'
+    addrFrom = '1 rue Valade, Toulouse'
     addrFromCoord = getCoordsFromAddr(addrFrom)
 
-    #addrTo = '6 Rue Antoine Deville, Toulouse'
-    addrTo = '43.606285,0.991359'
+    addrTo = '6 Rue Antoine Deville, Toulouse'
     addrToCoord = getCoordsFromAddr(addrTo)
 
-    # dist = getDistGmaps(addrFrom, addrTo)
-    # print(dist)
-
-    #dist = getDistOSRM(addrFromCoord, addrToCoord)
-    dist = getDistORS(addrFromCoord, addrToCoord)
+    distance, duration = getDistORS(addrFromCoord, addrToCoord)
+    print(f"[-] Distance={distance}m, Duration={duration}s")
 
 
 if __name__ == '__main__':
