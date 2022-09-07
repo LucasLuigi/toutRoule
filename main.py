@@ -1,7 +1,45 @@
+from glob import glob
 import googlemaps
 import requests
 import json
-from secret import mapsSecretKey, orsSecretKey
+from secret import orsSecretKey
+
+JCDStaticData = []
+JCDStaticDataReduced = []
+
+
+def parseStaticJCDData():
+    global JCDStaticData
+
+    try:
+        for station in JCDStaticData:
+            station["coordinates"] = str(
+                station["latitude"])+","+str(station["longitude"])
+    except Exception as err:
+        print(f"[X] Parsing - Static data are not completing formatted: {err}")
+
+
+def reduceNumberOfStations(addrFrom):
+    global JCDStaticData
+    global JCDStaticDataReduced
+
+    addrFromSplitted = addrFrom.split(',')
+    try:
+        lat = float(addrFromSplitted[0].strip(" "))
+        lon = float(addrFromSplitted[1].strip(" "))
+    except Exception as err:
+        print(
+            f"[X] Reducing - Static data are not completing formatted: {err}")
+
+    # FIXME find the correct trade-off between "less than 40 stations" (for the API) and "not 0 anywhere"
+    # Maybe we can go very little and extend GAP_DEGREES
+    GAP_DEGREES = 0.0075
+    for station in JCDStaticData:
+        if abs(station["latitude"]-lat) <= GAP_DEGREES and abs(station["longitude"]-lon) <= GAP_DEGREES:
+            JCDStaticDataReduced.append(station)
+
+    print(len(JCDStaticData))
+    print(len(JCDStaticDataReduced))
 
 
 # API: https://nominatim.org/release-docs/latest/api/Search/
@@ -67,9 +105,19 @@ def getDistORS(addrFrom, addrTo):
 
 
 def main():
+    global JCDStaticData
+
+    # stub, while the retrieving of JCDedaux's static data is not implement
+    with open('toulouse.json') as toulouseStaticFile:
+        JCDStaticData = json.load(toulouseStaticFile)
+    parseStaticJCDData()
+
     addrFrom = '1 rue Valade, Toulouse'
     addrFromCoord = getCoordsFromAddr(addrFrom)
 
+    reduceNumberOfStations(addrFromCoord)
+
+    # stub. Later, it will be the station
     addrTo = '6 Rue Antoine Deville, Toulouse'
     addrToCoord = getCoordsFromAddr(addrTo)
 
