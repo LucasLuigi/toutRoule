@@ -33,7 +33,11 @@ def reduceNumberOfStations(addrFrom):
 
     # FIXME find the correct trade-off between "less than 40 stations" (for the API) and "not 0 anywhere"
     # Maybe we can go very little and extend GAP_DEGREES
-    GAP_DEGREES = 0.0075
+
+    # Measured in Toulouse downtown
+    # Latitude: 0.01° = 1.12km
+    # Longitude: 0.01° = 805m
+    GAP_DEGREES = 0.0025
     for station in JCDStaticData:
         if abs(station["latitude"]-lat) <= GAP_DEGREES and abs(station["longitude"]-lon) <= GAP_DEGREES:
             JCDStaticDataReduced.append(station)
@@ -112,10 +116,17 @@ def main():
         JCDStaticData = json.load(toulouseStaticFile)
     parseStaticJCDData()
 
-    addrFrom = '1 rue Valade, Toulouse'
+    #addrFrom = '1 rue Valade, Toulouse'
+    addrFrom = '43.60798370654071, 1.4415337673273596'
     addrFromCoord = getCoordsFromAddr(addrFrom)
 
     reduceNumberOfStations(addrFromCoord)
+
+    # TEST, to remove
+    addrFrom = '43.610949082290205, 1.4684277881390817'
+    addrFromCoord = getCoordsFromAddr(addrFrom)
+    reduceNumberOfStations(addrFromCoord)
+    # END OF TEST
 
     # stub. Later, it will be the station
     addrTo = '6 Rue Antoine Deville, Toulouse'
