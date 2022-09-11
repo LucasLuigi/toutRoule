@@ -1,20 +1,57 @@
+from ast import Index
 from glob import glob
 import imp
 import googlemaps
 import requests
 import json
+import time
 from coordFormatting import CoordFormatting
-from secret import orsSecretKey
+from secret import orsSecretKey, jcdSecretKey
 
 
-def parseStaticJCDData(JCDStaticData):
+def getJCDStaticData():
+    # API_URL = "https://api.jcdecaux.com"
+    API_URL = "https://developer.jcdecaux.com"
+    CONTRACT_NAME = "toulouse"
+
+    #requestUrl = API_URL + "/vls/v1/stations?contract=" + CONTRACT_NAME + '&apiKey=' + jcdSecretKey
+    requestUrl = API_URL + "/rest/vls/stations/" + CONTRACT_NAME + ".json"
+    resp = requests.get(requestUrl)
+    if resp.status_code == 200:
+        try:
+            JCDStaticData = json.loads(resp.text)
+            if len(JCDStaticData) == 0:
+                raise KeyError("réponse vide du serveur")
+            print("...", end='')
+            return JCDStaticData
+        except (json.JSONDecodeError, KeyError) as err:
+            print(
+                f"\n[X] Les données statiques de station ne sont pas correctement formattées (get-{err})")
+            exit(1)
+    else:
+        print(
+            f"\n[X] Les données statiques de station n'ont pas été correctement récupérées (get-{err})")
+        exit(1)
+
+
+# WIP
+def getJCDDynamicData():
+    API_URL = "https://api.jcdecaux.com"
+    CONTRACT_NAME = "toulouse"
+    requestUrl = API_URL + "/vls/v1/stations?contract=" + \
+        CONTRACT_NAME + '&apiKey=' + jcdSecretKey
+
+
+# Adding in JCDStaticData for each station a stringed tuple of the coordinates
+def completeJCDStaticData(JCDStaticData):
     try:
         for station in JCDStaticData:
             station["coordinates"] = str(
                 station["latitude"])+","+str(station["longitude"])
+        print("...", end='')
     except Exception as err:
         print(
-            f"[X] Les données statiques de station ne sont pas correctement formattées (1-{err})")
+            f"[X] Les données statiques de station ne sont pas correctement formattées (complete-{err})")
 
 
 def reduceNumberOfStations(addrFrom, JCDStaticData):
@@ -36,9 +73,10 @@ def reduceNumberOfStations(addrFrom, JCDStaticData):
     try:
         lat = float(addrFromSplitted[0].strip(" "))
         lon = float(addrFromSplitted[1].strip(" "))
+    # FIXME Replace by more specific Exception
     except Exception as err:
         print(
-            f"[X] Les données statiques de station ne sont pas correctement formattées (2-{err})")
+            f"[X] Les données statiques de station ne sont pas correctement formattées (reduce-{err})")
 
     nbStationFound = 0
     squareHalfLengthDegrees = SQUARE_FIRST_HALF_LENGTH_DEGREES
@@ -133,21 +171,29 @@ def getDistORS(addrFrom, addrTo):
             distance = orsJsonPayload["features"][0]["properties"]["summary"]["distance"]
             duration = orsJsonPayload["features"][0]["properties"]["summary"]["duration"]
             return distance, duration
-        except Exception as err:
-            print(err)
-            return None
-
-    return None
+        except (json.JSONDecodeError, KeyError, IndexError, TypeError) as err:
+            print(
+                f"[X] Impossible de calculer la distance à pied entre les deux points: {err}")
+            exit(3)
+    else:
+        print(
+            f"[X] Impossible de calculer la distance à pied entre les deux points: {err}")
+        exit(3)
 
 
 def main():
     JCDStaticData = []
     JCDStaticDataReduced = []
 
-    # STUB, while the retrieving of JCDedaux's static data is not implement
-    with open('toulouse.json') as toulouseStaticFile:
-        JCDStaticData = json.load(toulouseStaticFile)
-    parseStaticJCDData(JCDStaticData)
+    print("Initialisation", end='')
+
+    # Ask the velÔToulouse API to get the list of stations with its coordinates
+    JCDStaticData = getJCDStaticData()
+
+    completeJCDStaticData(JCDStaticData)
+
+    print("... terminée.")
+    time.sleep(0.5)
 
     # Ask for current position
     addrFrom = input("Adresse actuelle : ")
@@ -160,7 +206,7 @@ def main():
     except CoordFormatting as err:
         print(
             f"[X] Erreur lors de la récupération des coordonnées de l'adresse: {err}")
-        exit(1)
+        exit(2)
 
     try:
         JCDStaticDataReduced = reduceNumberOfStations(
@@ -178,7 +224,7 @@ def main():
 
     except ValueError as err:
         print(err)
-        exit(1)
+        exit(3)
 
     # STUB. Later, it will be the station
     addrTo = '6 Rue Antoine Deville, Toulouse'
