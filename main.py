@@ -1,7 +1,9 @@
 from glob import glob
+import imp
 import googlemaps
 import requests
 import json
+from coordFormatting import CoordFormatting
 from secret import orsSecretKey
 
 
@@ -11,7 +13,8 @@ def parseStaticJCDData(JCDStaticData):
             station["coordinates"] = str(
                 station["latitude"])+","+str(station["longitude"])
     except Exception as err:
-        print(f"[X] Static data are not correctly formatted: {err}")
+        print(
+            f"[X] Les données statiques de station ne sont pas correctement formattées (1-{err})")
 
 
 def reduceNumberOfStations(addrFrom, JCDStaticData):
@@ -35,7 +38,7 @@ def reduceNumberOfStations(addrFrom, JCDStaticData):
         lon = float(addrFromSplitted[1].strip(" "))
     except Exception as err:
         print(
-            f"[X] Static data are not correctly formatted: {err}")
+            f"[X] Les données statiques de station ne sont pas correctement formattées (2-{err})")
 
     nbStationFound = 0
     squareHalfLengthDegrees = SQUARE_FIRST_HALF_LENGTH_DEGREES
@@ -57,7 +60,7 @@ def reduceNumberOfStations(addrFrom, JCDStaticData):
 
         if nbAttempts > MAX_NB_OF_ATTEMPTS:
             raise ValueError(
-                f"[X] The address is too far away (more than {MAX_NB_OF_KMS} kms) than any station.")
+                f"[X] L'adresse indiquée est trop éloignée (plus de {MAX_NB_OF_KMS} kms) de n'importe-quelle station.")
 
     #print(f"DEBUG: {nbAttempts} attempts, found {nbStationFound} stations")
     return JCDStaticDataReduced
@@ -68,6 +71,7 @@ def getCoordsFromAddr(addr):
     addrSplitted = addr.strip(' ').split(',')
     try:
         if len(addrSplitted) != 2:
+            # Caught just below
             raise IndexError(f"Length is {addrSplitted}")
         else:
             lat = float(addrSplitted[0].strip(" "))
@@ -75,24 +79,35 @@ def getCoordsFromAddr(addr):
             if lat >= -90.0 and lat <= 90.0 and lon >= -180.0 and lon <= 180.0:
                 return str(lat)+','+str(lon)
             else:
-                return None
-    except Exception:
+                raise CoordFormatting("")
+    except (IndexError, ValueError):
         # Reached when lat/long are not floats
         # I guess this is an address. Calling Nominatim (OSM) API to get the coordinates
         apiUrl = "https://nominatim.openstreetmap.org"
         requestUrl = apiUrl+"/search?q="+addr+'&format=json'
         resp = requests.get(requestUrl)
-        if resp.status_code != 200 or resp.text == '[]':
-            return None
+        if resp.status_code != 200:
+            raise CoordFormatting(
+                f"erreur serveur ({resp.status_code})")
+        elif resp.text == '[]':
+            raise CoordFormatting("l'adresse n'existe pas")
         else:
             try:
                 nominatimJsonPayload = json.loads(resp.text)
-                rebuiltAddr = str(
-                    nominatimJsonPayload[0]['lat'])+','+str(nominatimJsonPayload[0]['lon'])
-                return rebuiltAddr
-            except Exception as err:
-                print(f"[X] {err}")
-                return None
+                latStr = str(nominatimJsonPayload[0]['lat'])
+                lonStr = str(nominatimJsonPayload[0]['lon'])
+                if latStr == "" or lonStr == "":
+                    raise CoordFormatting(
+                        f"la réponse du serveur est tronquée, mal formattée, ou il manque les infos de latitude ({latStr}) et longitude ({lonStr}) - ({err})")
+                else:
+                    rebuiltAddr = latStr + ',' + lonStr
+                    return rebuiltAddr
+            except json.JSONDecodeError as err:
+                raise CoordFormatting(
+                    f"la réponse du serveur est tronquée ou mal formattée ({err})")
+            except (IndexError, KeyError, TypeError) as err:
+                raise CoordFormatting(
+                    f"la réponse du serveur est tronquée, mal formattée, ou il manque les infos de latitude et longitude ({err})")
 
 
 # API: https://openrouteservice.org/dev/#/api-docs/v2/directions/{profile}/get
@@ -129,14 +144,23 @@ def main():
     JCDStaticData = []
     JCDStaticDataReduced = []
 
-    # stub, while the retrieving of JCDedaux's static data is not implement
+    # STUB, while the retrieving of JCDedaux's static data is not implement
     with open('toulouse.json') as toulouseStaticFile:
         JCDStaticData = json.load(toulouseStaticFile)
     parseStaticJCDData(JCDStaticData)
 
+    # Ask for current position
+    addrFrom = input("Adresse actuelle : ")
+    addrFrom = addrFrom.strip(" .\n\r\t")
+
     #addrFrom = '1 rue Valade, Toulouse'
-    addrFrom = '43.60798370654071, 1.4415337673273596'
-    addrFromCoord = getCoordsFromAddr(addrFrom)
+    #addrFrom = '43.60798370654071, 1.4415337673273596'
+    try:
+        addrFromCoord = getCoordsFromAddr(addrFrom)
+    except CoordFormatting as err:
+        print(
+            f"[X] Erreur lors de la récupération des coordonnées de l'adresse: {err}")
+        exit(1)
 
     try:
         JCDStaticDataReduced = reduceNumberOfStations(

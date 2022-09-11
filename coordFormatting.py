@@ -1,0 +1,2 @@
+class CoordFormatting(Exception):
+    pass
