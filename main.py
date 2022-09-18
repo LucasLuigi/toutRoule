@@ -1,7 +1,3 @@
-from ast import Index
-from glob import glob
-import imp
-import googlemaps
 import requests
 import json
 import time
@@ -9,12 +5,11 @@ from coordFormatting import CoordFormatting
 from secret import orsSecretKey, jcdSecretKey
 
 
+# Getting the list of velÔtoulouse stations
 def getJCDStaticData():
-    # API_URL = "https://api.jcdecaux.com"
     API_URL = "https://developer.jcdecaux.com"
     CONTRACT_NAME = "toulouse"
 
-    #requestUrl = API_URL + "/vls/v1/stations?contract=" + CONTRACT_NAME + '&apiKey=' + jcdSecretKey
     requestUrl = API_URL + "/rest/vls/stations/" + CONTRACT_NAME + ".json"
     resp = requests.get(requestUrl)
     if resp.status_code == 200:
@@ -34,20 +29,42 @@ def getJCDStaticData():
         exit(1)
 
 
-# WIP
+# Getting the updated list of velÔtoulouse stations with the current number of free bike stands
 def getJCDDynamicData():
     API_URL = "https://api.jcdecaux.com"
     CONTRACT_NAME = "toulouse"
     requestUrl = API_URL + "/vls/v1/stations?contract=" + \
         CONTRACT_NAME + '&apiKey=' + jcdSecretKey
 
+    resp = requests.get(requestUrl)
+    if resp.status_code == 200:
+        try:
+            JCDDyanmicData = json.loads(resp.text)
+            if len(JCDDyanmicData) == 0:
+                raise KeyError("réponse vide du serveur")
+            print("...", end='')
+            return JCDDyanmicData
+        except (json.JSONDecodeError, KeyError) as err:
+            print(
+                f"\n[X] Les données dynamiques de station ne sont pas correctement formattées (get-{err})")
+            exit(1)
+    else:
+        print(
+            f"\n[X] Les données dynamiques de station n'ont pas été correctement récupérées (get-{err})")
+        exit(1)
 
-# Adding in JCDStaticData for each station a stringed tuple of the coordinates
+
+# Completing JCD data for better processing
 def completeJCDStaticData(JCDStaticData):
     try:
         for station in JCDStaticData:
+            # Adding a field coordinate
             station["coordinates"] = str(
                 station["latitude"])+","+str(station["longitude"])
+
+            # Concatenating dynamic data into static data
+            # WIP
+            # FIXME: maybe getting dynamic data is enough?
         print("...", end='')
     except Exception as err:
         print(
@@ -62,7 +79,9 @@ def reduceNumberOfStations(addrFrom, JCDStaticData):
     KM_TO_DEGREES_CONVERTION = 0.01
     SQUARE_FIRST_HALF_LENGTH_DEGREES = 0.0025
     SQUARE_INCREMENTED_LENGTH_DEGREES = 0.0025
-    MINIMAL_NB_REDUCED_STATIONS = 2
+    MINIMAL_NB_REDUCED_STATIONS = 5
+    # Limit of OpenRouteService API requests per minute
+    MAXIMAL_NB_REDUCED_STATIONS = 40
     # If we are more than 2km away from any station: we give up
     MAX_NB_OF_KMS = 2.0
     MAX_NB_OF_ATTEMPTS = 1 + int(
@@ -73,7 +92,7 @@ def reduceNumberOfStations(addrFrom, JCDStaticData):
     try:
         lat = float(addrFromSplitted[0].strip(" "))
         lon = float(addrFromSplitted[1].strip(" "))
-    # FIXME Replace by more specific Exception
+    # FIXME Replace by a more specific Exception
     except Exception as err:
         print(
             f"[X] Les données statiques de station ne sont pas correctement formattées (reduce-{err})")
@@ -89,6 +108,13 @@ def reduceNumberOfStations(addrFrom, JCDStaticData):
             if abs(station["latitude"]-lat) <= squareHalfLengthDegrees and abs(station["longitude"]-lon) <= squareHalfLengthDegrees:
                 JCDStaticDataReduced.append(station)
                 nbStationFound += 1
+
+        if nbStationFound > MAXIMAL_NB_REDUCED_STATIONS:
+            # Too much requests for the API
+            SQUARE_FIRST_HALF_LENGTH_DEGREES /= 2
+            SQUARE_INCREMENTED_LENGTH_DEGREES /= 2
+            squareHalfLengthDegrees = SQUARE_FIRST_HALF_LENGTH_DEGREES
+            nbAttempts -= 1
 
         if nbStationFound < MINIMAL_NB_REDUCED_STATIONS:
             # Not enough results
@@ -183,12 +209,14 @@ def getDistORS(addrFrom, addrTo):
 
 def main():
     JCDStaticData = []
+    JCDDynamicData = []
     JCDStaticDataReduced = []
 
     print("Initialisation", end='')
 
     # Ask the velÔToulouse API to get the list of stations with its coordinates
     JCDStaticData = getJCDStaticData()
+    JCDDynamicData = getJCDDynamicData()
 
     completeJCDStaticData(JCDStaticData)
 
