@@ -5,30 +5,6 @@ from coordFormatting import CoordFormatting
 from secret import orsSecretKey, jcdSecretKey
 
 
-# Getting the list of velÔtoulouse stations
-def getJCDStaticData():
-    API_URL = "https://developer.jcdecaux.com"
-    CONTRACT_NAME = "toulouse"
-
-    requestUrl = API_URL + "/rest/vls/stations/" + CONTRACT_NAME + ".json"
-    resp = requests.get(requestUrl)
-    if resp.status_code == 200:
-        try:
-            JCDStaticData = json.loads(resp.text)
-            if len(JCDStaticData) == 0:
-                raise KeyError("réponse vide du serveur")
-            print("...", end='')
-            return JCDStaticData
-        except (json.JSONDecodeError, KeyError) as err:
-            print(
-                f"\n[X] Les données statiques de station ne sont pas correctement formattées (get-{err})")
-            exit(1)
-    else:
-        print(
-            f"\n[X] Les données statiques de station n'ont pas été correctement récupérées (get-{err})")
-        exit(1)
-
-
 # Getting the updated list of velÔtoulouse stations with the current number of free bike stands
 def getJCDDynamicData():
     API_URL = "https://api.jcdecaux.com"
@@ -46,32 +22,28 @@ def getJCDDynamicData():
             return JCDDyanmicData
         except (json.JSONDecodeError, KeyError) as err:
             print(
-                f"\n[X] Les données dynamiques de station ne sont pas correctement formattées (get-{err})")
+                f"\n[X] Les données de station ne sont pas correctement formattées (get-{err})")
             exit(1)
     else:
         print(
-            f"\n[X] Les données dynamiques de station n'ont pas été correctement récupérées (get-{err})")
+            f"\n[X] Les données de station n'ont pas été correctement récupérées (get-{err})")
         exit(1)
 
 
 # Completing JCD data for better processing
-def completeJCDStaticData(JCDStaticData):
+def completeJCDStaticData(JCDData):
     try:
-        for station in JCDStaticData:
+        for station in JCDData:
             # Adding a field coordinate
             station["coordinates"] = str(
-                station["latitude"])+","+str(station["longitude"])
-
-            # Concatenating dynamic data into static data
-            # WIP
-            # FIXME: maybe getting dynamic data is enough?
+                station["position"]["lat"])+","+str(station["position"]["lng"])
         print("...", end='')
     except Exception as err:
         print(
-            f"[X] Les données statiques de station ne sont pas correctement formattées (complete-{err})")
+            f"\n[X] Les données de station ne sont pas correctement formattées (complete-{err})")
 
 
-def reduceNumberOfStations(addrFrom, JCDStaticData):
+def reduceNumberOfStations(addrFrom, JCDData):
     # Measured in Toulouse downtown
     # Latitude: 0.01° = 1.12km
     # Longitude: 0.01° = 805m
@@ -86,7 +58,7 @@ def reduceNumberOfStations(addrFrom, JCDStaticData):
     MAX_NB_OF_KMS = 2.0
     MAX_NB_OF_ATTEMPTS = 1 + int(
         MAX_NB_OF_KMS * KM_TO_DEGREES_CONVERTION / SQUARE_INCREMENTED_LENGTH_DEGREES)
-    JCDStaticDataReduced = []
+    JCDDataReduced = []
 
     addrFromSplitted = addrFrom.split(',')
     try:
@@ -104,9 +76,9 @@ def reduceNumberOfStations(addrFrom, JCDStaticData):
     # Find closed stations in a square arround the coordinates. If not enough are found, extend the size of the square
     while nbStationFound == 0:
         nbAttempts += 1
-        for station in JCDStaticData:
-            if abs(station["latitude"]-lat) <= squareHalfLengthDegrees and abs(station["longitude"]-lon) <= squareHalfLengthDegrees:
-                JCDStaticDataReduced.append(station)
+        for station in JCDData:
+            if abs(station["position"]["lat"]-lat) <= squareHalfLengthDegrees and abs(station["position"]["lng"]-lon) <= squareHalfLengthDegrees:
+                JCDDataReduced.append(station)
                 nbStationFound += 1
 
         if nbStationFound > MAXIMAL_NB_REDUCED_STATIONS:
@@ -127,7 +99,7 @@ def reduceNumberOfStations(addrFrom, JCDStaticData):
                 f"[X] L'adresse indiquée est trop éloignée (plus de {MAX_NB_OF_KMS} kms) de n'importe-quelle station.")
 
     #print(f"DEBUG: {nbAttempts} attempts, found {nbStationFound} stations")
-    return JCDStaticDataReduced
+    return JCDDataReduced
 
 
 # API: https://nominatim.org/release-docs/latest/api/Search/
@@ -174,6 +146,30 @@ def getCoordsFromAddr(addr):
                     f"la réponse du serveur est tronquée, mal formattée, ou il manque les infos de latitude et longitude ({err})")
 
 
+# If we are in beginning mode, the station must have available bikes
+# If we are in end mode, the station must have available stands
+def getDistWithStation(addr, station, flagEndMode):
+    VERY_LONG_DISTANCE = 9999999999999999999999.0
+    MIN_AVAILABLE_BIKE = 1
+    MIN_AVAILABLE_BIKE_STANDS = 3
+
+    try:
+        if station["status"] != "OPEN":
+            return VERY_LONG_DISTANCE
+        if flagEndMode:
+            if station["available_bike_stands"] < MIN_AVAILABLE_BIKE_STANDS:
+                return VERY_LONG_DISTANCE
+            # Nearest distance between a station and the address
+            return getDistORS(station["coordinates"], addr)
+        else:
+            if station["available_bikes"] < MIN_AVAILABLE_BIKE:
+                return VERY_LONG_DISTANCE
+            # Nearest distance the address and a station
+            return getDistORS(addr, station["coordinates"])
+    except (ValueError, IndexError, TypeError) as err:
+        print(f"[X] Il y a eu un problème lors du calcul de distance: {err}")
+
+
 # API: https://openrouteservice.org/dev/#/api-docs/v2/directions/{profile}/get
 def getDistORS(addrFrom, addrTo):
     apiUrl = "https://api.openrouteservice.org"
@@ -194,41 +190,68 @@ def getDistORS(addrFrom, addrTo):
     if resp.status_code == 200:
         try:
             orsJsonPayload = json.loads(resp.text)
-            distance = orsJsonPayload["features"][0]["properties"]["summary"]["distance"]
-            duration = orsJsonPayload["features"][0]["properties"]["summary"]["duration"]
-            return distance, duration
+            distance = float(
+                orsJsonPayload["features"][0]["properties"]["summary"]["distance"])
+            #duration = orsJsonPayload["features"][0]["properties"]["summary"]["duration"]
+            return distance
         except (json.JSONDecodeError, KeyError, IndexError, TypeError) as err:
             print(
-                f"[X] Impossible de calculer la distance à pied entre les deux points: {err}")
+                f"\n[X] Impossible de calculer la distance à pied entre les deux points: {err}")
             exit(3)
+    elif resp.status_code == 429:
+        print(f"\n[X] Trop de requête, réessayez dans 1 minute")
+        exit(4)
     else:
         print(
-            f"[X] Impossible de calculer la distance à pied entre les deux points: {err}")
+            f"\n[X] Impossible de calculer la distance à pied entre les deux points: {err}")
         exit(3)
 
 
-def main():
-    JCDStaticData = []
-    JCDDynamicData = []
-    JCDStaticDataReduced = []
+def findNearestStation(addrFromCoord, JCDDataReduced, flagEndMode):
+    if flagEndMode:
+        print("Recherche de la station la plus proche de l'adresse...", end='')
+    else:
+        print("Recherche de la station la plus proche...", end='')
+    nearestStation = min(JCDDataReduced, key=lambda station: getDistWithStation(
+        addrFromCoord, station, flagEndMode))
 
-    print("Initialisation", end='')
+    print("trouvée !")
+
+    return nearestStation
+
+
+def main():
+    JCDData = []
+    JCDDataReduced = []
+
+    print("Initialisation...", end='')
 
     # Ask the velÔToulouse API to get the list of stations with its coordinates
-    JCDStaticData = getJCDStaticData()
-    JCDDynamicData = getJCDDynamicData()
+    JCDData = getJCDDynamicData()
 
-    completeJCDStaticData(JCDStaticData)
+    completeJCDStaticData(JCDData)
 
-    print("... terminée.")
+    print("terminée.\n")
     time.sleep(0.5)
 
+    # Ask if we want to go to the nearest station or if we are looking for the nearest station to drive to to go to a final address
+    endMode = input("Mode actuel : Début de trajet - plus proche station à pied où prendre son vélo à partir de l'adresse indiquée.\nTape F pour passer en mode Fin de trajet - station où poser son vélo pour rejoindre l'adresse indiquée : ")
+    endMode = endMode.strip(" .\n\r\t").lower()
+    if endMode == "f":
+        flagEndMode = True
+        TEXT_INPUT_POSITION = "Adresse d'arrivée : "
+        print("> Mode Fin de trajet\n")
+    else:
+        flagEndMode = False
+        TEXT_INPUT_POSITION = "Adresse actuelle/de départ : "
+        print("> Mode Début de trajet\n")
+
     # Ask for current position
-    addrFrom = input("Adresse actuelle : ")
+    addrFrom = input(TEXT_INPUT_POSITION)
     addrFrom = addrFrom.strip(" .\n\r\t")
 
-    #addrFrom = '1 rue Valade, Toulouse'
-    #addrFrom = '43.60798370654071, 1.4415337673273596'
+    print("")
+
     try:
         addrFromCoord = getCoordsFromAddr(addrFrom)
     except CoordFormatting as err:
@@ -237,30 +260,23 @@ def main():
         exit(2)
 
     try:
-        JCDStaticDataReduced = reduceNumberOfStations(
-            addrFromCoord, JCDStaticData)
-
-        # TEST, to remove
-        # addrFrom = '43.65723761277264, 1.2737243831651757'
-        # addrFromCoord = getCoordsFromAddr(addrFrom)
-        # #tmp1 = reduceNumberOfStations(addrFromCoord, JCDStaticData)
-
-        # addrFrom = '43.610949082290205, 1.4684277881390817'
-        # addrFromCoord = getCoordsFromAddr(addrFrom)
-        # tmp2 = reduceNumberOfStations(addrFromCoord, JCDStaticData)
-        # END OF TEST
+        JCDDataReduced = reduceNumberOfStations(
+            addrFromCoord, JCDData)
 
     except ValueError as err:
         print(err)
         exit(3)
 
-    # STUB. Later, it will be the station
-    addrTo = '6 Rue Antoine Deville, Toulouse'
-    addrToCoord = getCoordsFromAddr(addrTo)
-    # END OF STUB
+    nearestStation = findNearestStation(
+        addrFromCoord, JCDDataReduced, flagEndMode)
+    time.sleep(1.0)
 
-    distance, duration = getDistORS(addrFromCoord, addrToCoord)
-    print(f"[-] Distance={distance}m, Duration={duration}s")
+    stationName = nearestStation["name"]
+    stationAddress = nearestStation["address"]
+    stationAvBikeStands = nearestStation["available_bike_stands"]
+    stationAvBikes = nearestStation["available_bikes"]
+    print(
+        f"\n> Station {stationName} ({stationAvBikes} vélo(s) disponible(s) / {stationAvBikeStands} place(s) libre(s))\n  Adresse : {stationAddress}")
 
 
 if __name__ == '__main__':

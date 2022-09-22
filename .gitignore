@@ -6,6 +6,3 @@ __pycache__/
 # API keys
 *.key
 secret.py
-
-# Do not commit the JCDDecaux static data here just for dev purpose
-toulouse.json
