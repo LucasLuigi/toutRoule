@@ -6,9 +6,15 @@ Il y a 2 modes : le mode Début de trajet (l'utilisateur veut rejoindre à pied 
 
 Il n'a été testé qu'à Toulouse, mais au vu de l'API JCDecaux il peut être utilisé dans n'importe quelle ville ayant des stations exploitées par JCDecaux. La modification de code est minime (la variable `CITY` dans le `main()`)
 
-## Dépendances
+## Licenses tiers
 
-Il utilise trois APIs, [Nominatif OpenStreetMap](https://nominatim.org/release-docs/latest/api/Search/), [openrouteservice V2](https://openrouteservice.org/dev/#/api-docs/v2/directions) et [JCDecaux API](https://developer.jcdecaux.com/#/opendata/vls?page=getstarted). Deux d'entre elles nécessitent de créer un compte (gratuit) et demander une clé API (gratuite et libre) à entrer dans [secret.py](secret.py)
+Il utilise trois APIs :
+
+- [Nominatif OpenStreetMap](https://nominatim.org/release-docs/latest/api/Search/) - [license ODbL (Open Database License)](https://www.openstreetmap.org/copyright)
+- [openrouteservice V2](https://openrouteservice.org/dev/#/api-docs/v2/directions) - © openrouteservice.org by HeiGIT | Map data © OpenStreetMap contributors
+- [JCDecaux API](https://developer.jcdecaux.com/#/opendata/vls?page=getstarted)
+
+Deux d'entre elles nécessitent de créer un compte (gratuit) et demander une clé API (gratuite et libre) à entrer dans [secret.py](secret.py)
 
 ## Evolution
 
