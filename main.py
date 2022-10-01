@@ -63,11 +63,11 @@ def reduceNumberOfStations(addrFrom, JCDData):
     addrFromSplitted = addrFrom.split(',')
     try:
         lat = float(addrFromSplitted[0].strip(" "))
-        lon = float(addrFromSplitted[1].strip(" "))
+        lng = float(addrFromSplitted[1].strip(" "))
     # FIXME Replace by a more specific Exception
     except Exception as err:
         print(
-            f"[X] Les données statiques de station ne sont pas correctement formattées (reduce-{err})")
+            f"\n[X] Les données statiques de station ne sont pas correctement formattées (reduce-{err})")
 
     nbStationFound = 0
     squareHalfLengthDegrees = SQUARE_FIRST_HALF_LENGTH_DEGREES
@@ -77,7 +77,7 @@ def reduceNumberOfStations(addrFrom, JCDData):
     while nbStationFound == 0:
         nbAttempts += 1
         for station in JCDData:
-            if abs(station["position"]["lat"]-lat) <= squareHalfLengthDegrees and abs(station["position"]["lng"]-lon) <= squareHalfLengthDegrees:
+            if abs(station["position"]["lat"]-lat) <= squareHalfLengthDegrees and abs(station["position"]["lng"]-lng) <= squareHalfLengthDegrees:
                 JCDDataReduced.append(station)
                 nbStationFound += 1
 
@@ -96,7 +96,7 @@ def reduceNumberOfStations(addrFrom, JCDData):
 
         if nbAttempts > MAX_NB_OF_ATTEMPTS:
             raise ValueError(
-                f"[X] L'adresse indiquée est trop éloignée (plus de {MAX_NB_OF_KMS} kms) de n'importe-quelle station.")
+                f"\n[X] L'adresse indiquée est trop éloignée (plus de {MAX_NB_OF_KMS} kms) de n'importe-quelle station.")
 
     #print(f"DEBUG: {nbAttempts} attempts, found {nbStationFound} stations")
     return JCDDataReduced
@@ -152,9 +152,15 @@ def getDistWithStation(addr, station, flagEndMode):
     VERY_LONG_DISTANCE = 9999999999999999999999.0
     MIN_AVAILABLE_BIKE = 1
     MIN_AVAILABLE_BIKE_STANDS = 3
+    MAX_SECONDS_SINCE_LAST_UPDATE = 1800
+
+    NOW_IN_EPOCH_WITH_MS = int(time.time() * 1000)
 
     try:
         if station["status"] != "OPEN":
+            return VERY_LONG_DISTANCE
+        # last_update is in epoch ms
+        if NOW_IN_EPOCH_WITH_MS - station["last_update"] > 1000*MAX_SECONDS_SINCE_LAST_UPDATE:
             return VERY_LONG_DISTANCE
         if flagEndMode:
             if station["available_bike_stands"] < MIN_AVAILABLE_BIKE_STANDS:
@@ -192,7 +198,6 @@ def getDistORS(addrFrom, addrTo):
             orsJsonPayload = json.loads(resp.text)
             distance = float(
                 orsJsonPayload["features"][0]["properties"]["summary"]["distance"])
-            #duration = orsJsonPayload["features"][0]["properties"]["summary"]["duration"]
             return distance
         except (json.JSONDecodeError, KeyError, IndexError, TypeError) as err:
             print(
@@ -208,19 +213,16 @@ def getDistORS(addrFrom, addrTo):
 
 
 def findNearestStation(addrFromCoord, JCDDataReduced, flagEndMode):
-    if flagEndMode:
-        print("Recherche de la station la plus proche de l'adresse...", end='')
-    else:
-        print("Recherche de la station la plus proche...", end='')
     nearestStation = min(JCDDataReduced, key=lambda station: getDistWithStation(
         addrFromCoord, station, flagEndMode))
-
     print("trouvée !")
 
     return nearestStation
 
 
 def main():
+    CITY = "toulouse"
+
     JCDData = []
     JCDDataReduced = []
 
@@ -235,7 +237,9 @@ def main():
     time.sleep(0.5)
 
     # Ask if we want to go to the nearest station or if we are looking for the nearest station to drive to to go to a final address
-    endMode = input("Mode actuel : Début de trajet - plus proche station à pied où prendre son vélo à partir de l'adresse indiquée.\nTape F pour passer en mode Fin de trajet - station où poser son vélo pour rejoindre l'adresse indiquée : ")
+    print("Mode Début de trajet activé\n🚶-🚩--🚴--🏁\n")
+    endMode = input(
+        "Entrez F pour passer en mode Fin de trajet\n   🚩--🚴--🏁-🚶\n> ")
     endMode = endMode.strip(" .\n\r\t").lower()
     if endMode == "f":
         flagEndMode = True
@@ -250,18 +254,28 @@ def main():
     addrFrom = input(TEXT_INPUT_POSITION)
     addrFrom = addrFrom.strip(" .\n\r\t")
 
+    # By default, add the city to the address
+    if CITY not in addrFrom.lower():
+        addrFrom = addrFrom+", " + CITY
+
     print("")
+    if flagEndMode:
+        print("Recherche de la station la plus proche de l'adresse...", end='')
+    else:
+        print("Recherche de la station la plus proche...", end='')
 
     try:
         addrFromCoord = getCoordsFromAddr(addrFrom)
+        print("...", end='')
     except CoordFormatting as err:
         print(
-            f"[X] Erreur lors de la récupération des coordonnées de l'adresse: {err}")
+            f"\n[X] Erreur lors de la récupération des coordonnées de l'adresse: {err}")
         exit(2)
 
     try:
         JCDDataReduced = reduceNumberOfStations(
             addrFromCoord, JCDData)
+        print("...", end='')
 
     except ValueError as err:
         print(err)
