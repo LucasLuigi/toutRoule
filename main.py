@@ -6,9 +6,9 @@ from secret import orsSecretKey, jcdSecretKey
 
 
 # Getting the updated list of velÔtoulouse stations with the current number of free bike stands
-def getJCDDynamicData():
+def getJCDDynamicData(city):
     API_URL = "https://api.jcdecaux.com"
-    CONTRACT_NAME = "toulouse"
+    CONTRACT_NAME = city
     requestUrl = API_URL + "/vls/v1/stations?contract=" + \
         CONTRACT_NAME + '&apiKey=' + jcdSecretKey
 
@@ -229,7 +229,7 @@ def main():
     print("Initialisation...", end='')
 
     # Ask the velÔToulouse API to get the list of stations with its coordinates
-    JCDData = getJCDDynamicData()
+    JCDData = getJCDDynamicData(CITY)
 
     completeJCDStaticData(JCDData)
 
