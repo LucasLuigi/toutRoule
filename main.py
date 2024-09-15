@@ -1,6 +1,7 @@
 import requests
 import json
 import time
+import argparse
 from coordFormatting import CoordFormatting
 from secret import orsSecretKey, jcdSecretKey
 
@@ -98,7 +99,7 @@ def reduceNumberOfStations(addrFrom, JCDData):
             raise ValueError(
                 f"\n[X] L'adresse indiquée est trop éloignée (plus de {MAX_NB_OF_KMS} kms) de n'importe-quelle station.")
 
-    #print(f"DEBUG: {nbAttempts} attempts, found {nbStationFound} stations")
+    # print(f"DEBUG: {nbAttempts} attempts, found {nbStationFound} stations")
     return JCDDataReduced
 
 
@@ -295,6 +296,8 @@ def main():
 
 if __name__ == '__main__':
     print('- toutRoule - \n')
+    parser = argparse.ArgumentParser(prog="toutRoule")
+    parser.add_argument('termux')
 
     main()
     exit(0)
