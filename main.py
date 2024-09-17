@@ -2,25 +2,26 @@ import requests
 import json
 import time
 import argparse
+import subprocess
 from coordFormatting import CoordFormatting
-from secret import orsSecretKey, jcdSecretKey
+from secret import ors_secret_key, jcd_secret_key
 
 
 # Getting the updated list of velÔtoulouse stations with the current number of free bike stands
-def getJCDDynamicData(city):
+def get_JCD_dynamic_data(city):
     API_URL = "https://api.jcdecaux.com"
     CONTRACT_NAME = city
-    requestUrl = API_URL + "/vls/v1/stations?contract=" + \
-        CONTRACT_NAME + '&apiKey=' + jcdSecretKey
+    request_url = API_URL + "/vls/v1/stations?contract=" + \
+        CONTRACT_NAME + '&apiKey=' + jcd_secret_key
 
-    resp = requests.get(requestUrl)
+    resp = requests.get(request_url)
     if resp.status_code == 200:
         try:
-            JCDDyanmicData = json.loads(resp.text)
-            if len(JCDDyanmicData) == 0:
+            JCD_dynamic_data = json.loads(resp.text)
+            if len(JCD_dynamic_data) == 0:
                 raise KeyError("réponse vide du serveur")
             print("...", end='')
-            return JCDDyanmicData
+            return JCD_dynamic_data
         except (json.JSONDecodeError, KeyError) as err:
             print(
                 f"\n[X] Les données de station ne sont pas correctement formattées (get-{err})")
@@ -32,9 +33,9 @@ def getJCDDynamicData(city):
 
 
 # Completing JCD data for better processing
-def completeJCDStaticData(JCDData):
+def extend_JCD_static_data_for_processing(JCD_data):
     try:
-        for station in JCDData:
+        for station in JCD_data:
             # Adding a field coordinate
             station["coordinates"] = str(
                 station["position"]["lat"])+","+str(station["position"]["lng"])
@@ -44,7 +45,7 @@ def completeJCDStaticData(JCDData):
             f"\n[X] Les données de station ne sont pas correctement formattées (complete-{err})")
 
 
-def reduceNumberOfStations(addrFrom, JCDData):
+def reduce_number_of_stations(coords_waypoint, JCD_data):
     # Measured in Toulouse downtown
     # Latitude: 0.01° = 1.12km
     # Longitude: 0.01° = 805m
@@ -59,52 +60,52 @@ def reduceNumberOfStations(addrFrom, JCDData):
     MAX_NB_OF_KMS = 2.0
     MAX_NB_OF_ATTEMPTS = 1 + int(
         MAX_NB_OF_KMS * KM_TO_DEGREES_CONVERTION / SQUARE_INCREMENTED_LENGTH_DEGREES)
-    JCDDataReduced = []
+    JCD_data_reduced = []
 
-    addrFromSplitted = addrFrom.split(',')
+    coords_waypoint_splitted = coords_waypoint.split(',')
     try:
-        lat = float(addrFromSplitted[0].strip(" "))
-        lng = float(addrFromSplitted[1].strip(" "))
+        lat = float(coords_waypoint_splitted[0].strip(" "))
+        lng = float(coords_waypoint_splitted[1].strip(" "))
     # FIXME Replace by a more specific Exception
     except Exception as err:
         print(
             f"\n[X] Les données statiques de station ne sont pas correctement formattées (reduce-{err})")
 
-    nbStationFound = 0
-    squareHalfLengthDegrees = SQUARE_FIRST_HALF_LENGTH_DEGREES
-    nbAttempts = 0
+    nb_station_found = 0
+    square_half_length_degrees = SQUARE_FIRST_HALF_LENGTH_DEGREES
+    nb_attempts = 0
 
     # Find closed stations in a square arround the coordinates. If not enough are found, extend the size of the square
-    while nbStationFound == 0:
-        nbAttempts += 1
-        for station in JCDData:
-            if abs(station["position"]["lat"]-lat) <= squareHalfLengthDegrees and abs(station["position"]["lng"]-lng) <= squareHalfLengthDegrees:
-                JCDDataReduced.append(station)
-                nbStationFound += 1
+    while nb_station_found == 0:
+        nb_attempts += 1
+        for station in JCD_data:
+            if abs(station["position"]["lat"]-lat) <= square_half_length_degrees and abs(station["position"]["lng"]-lng) <= square_half_length_degrees:
+                JCD_data_reduced.append(station)
+                nb_station_found += 1
 
-        if nbStationFound > MAXIMAL_NB_REDUCED_STATIONS:
+        if nb_station_found > MAXIMAL_NB_REDUCED_STATIONS:
             # Too much requests for the API
             SQUARE_FIRST_HALF_LENGTH_DEGREES /= 2
             SQUARE_INCREMENTED_LENGTH_DEGREES /= 2
-            squareHalfLengthDegrees = SQUARE_FIRST_HALF_LENGTH_DEGREES
-            nbAttempts -= 1
+            square_half_length_degrees = SQUARE_FIRST_HALF_LENGTH_DEGREES
+            nb_attempts -= 1
 
-        if nbStationFound < MINIMAL_NB_REDUCED_STATIONS:
+        if nb_station_found < MINIMAL_NB_REDUCED_STATIONS:
             # Not enough results
-            squareHalfLengthDegrees += SQUARE_INCREMENTED_LENGTH_DEGREES
+            square_half_length_degrees += SQUARE_INCREMENTED_LENGTH_DEGREES
             # Make sure the next count is exact
-            nbStationFound = 0
+            nb_station_found = 0
 
-        if nbAttempts > MAX_NB_OF_ATTEMPTS:
+        if nb_attempts > MAX_NB_OF_ATTEMPTS:
             raise ValueError(
                 f"\n[X] L'adresse indiquée est trop éloignée (plus de {MAX_NB_OF_KMS} kms) de n'importe-quelle station.")
 
     # print(f"DEBUG: {nbAttempts} attempts, found {nbStationFound} stations")
-    return JCDDataReduced
+    return JCD_data_reduced
 
 
 # API: https://nominatim.org/release-docs/latest/api/Search/
-def getCoordsFromAddr(addr):
+def get_coords_from_addr(addr: str) -> str:
     addrSplitted = addr.strip(' ').split(',')
     try:
         if len(addrSplitted) != 2:
@@ -147,9 +148,41 @@ def getCoordsFromAddr(addr):
                     f"la réponse du serveur est tronquée, mal formattée, ou il manque les infos de latitude et longitude ({err})")
 
 
+def ask_coords_to_termux_api() -> str:
+    TERMUX_CMD_GPS = "termux-location -p gps -r once".split(' ')
+    TERMUX_CMD_NETWORK = "termux-location -p gps -r once"
+    termux_response_gps = subprocess.run(
+        TERMUX_CMD_GPS, capture_output=True).stdout
+
+
+def ask_address_to_user_and_convert_them_in_coords(input_label_string: str, CITY: str, end_mode_flag: bool) -> str:
+    # Ask for current position
+    address_input = input(input_label_string)
+    address_input = address_input.strip(" .\n\r\t")
+
+    # By default, add the city to the address
+    if CITY not in address_input.lower():
+        address_input = address_input+", " + CITY
+
+    print("")
+    if end_mode_flag:
+        print("Recherche de la station la plus proche de l'adresse...", end='')
+    else:
+        print("Recherche de la station la plus proche...", end='')
+
+    try:
+        coords_waypoint = get_coords_from_addr(address_input)
+        print("...", end='')
+    except CoordFormatting as err:
+        print(
+            f"\n[X] Erreur lors de la récupération des coordonnées de l'adresse: {err}")
+        exit(2)
+    return coords_waypoint
+
+
 # If we are in beginning mode, the station must have available bikes
 # If we are in end mode, the station must have available stands
-def getDistWithStation(addr, station, flagEndMode):
+def compute_distance_with_station(coords_waypoint, station, end_mode_flag):
     VERY_LONG_DISTANCE = 9999999999999999999999.0
     MIN_AVAILABLE_BIKE = 1
     MIN_AVAILABLE_BIKE_STANDS = 3
@@ -163,42 +196,42 @@ def getDistWithStation(addr, station, flagEndMode):
         # last_update is in epoch ms
         if NOW_IN_EPOCH_WITH_MS - station["last_update"] > 1000*MAX_SECONDS_SINCE_LAST_UPDATE:
             return VERY_LONG_DISTANCE
-        if flagEndMode:
+        if end_mode_flag:
             if station["available_bike_stands"] < MIN_AVAILABLE_BIKE_STANDS:
                 return VERY_LONG_DISTANCE
             # Nearest distance between a station and the address
-            return getDistORS(station["coordinates"], addr)
+            return ask_ORS_to_compute_distance(station["coordinates"], coords_waypoint)
         else:
             if station["available_bikes"] < MIN_AVAILABLE_BIKE:
                 return VERY_LONG_DISTANCE
             # Nearest distance the address and a station
-            return getDistORS(addr, station["coordinates"])
+            return ask_ORS_to_compute_distance(coords_waypoint, station["coordinates"])
     except (ValueError, IndexError, TypeError) as err:
         print(f"[X] Il y a eu un problème lors du calcul de distance: {err}")
 
 
 # API: https://openrouteservice.org/dev/#/api-docs/v2/directions/{profile}/get
-def getDistORS(addrFrom, addrTo):
-    apiUrl = "https://api.openrouteservice.org"
+def ask_ORS_to_compute_distance(coords_from: str, coords_to: str) -> float:
+    API_URL = "https://api.openrouteservice.org"
     profile = "foot-walking"
 
     # For this API, lat and lon are inverted
-    addrFromSplitted = addrFrom.split(',')
-    addrFromFormatted = addrFromSplitted[1].strip(
-        " ")+','+addrFromSplitted[0].strip(" ")
+    coords_from_splitted = coords_from.split(',')
+    coords_from_formatted = coords_from_splitted[1].strip(
+        " ")+','+coords_from_splitted[0].strip(" ")
 
-    addrToSplitted = addrTo.split(',')
-    addrToFormatted = addrToSplitted[1].strip(
-        " ")+','+addrToSplitted[0].strip(" ")
+    corrds_to_splitted = coords_to.split(',')
+    coords_to_formatted = corrds_to_splitted[1].strip(
+        " ")+','+corrds_to_splitted[0].strip(" ")
 
-    requestUrl = apiUrl+"/v2/directions/"+profile+'?api_key=' + \
-        orsSecretKey+'&start='+addrFromFormatted + '&end=' + addrToFormatted
-    resp = requests.get(requestUrl)
+    request_url = API_URL+"/v2/directions/"+profile+'?api_key=' + \
+        ors_secret_key+'&start='+coords_from_formatted + '&end=' + coords_to_formatted
+    resp = requests.get(request_url)
     if resp.status_code == 200:
         try:
-            orsJsonPayload = json.loads(resp.text)
+            ors_json_payload = json.loads(resp.text)
             distance = float(
-                orsJsonPayload["features"][0]["properties"]["summary"]["distance"])
+                ors_json_payload["features"][0]["properties"]["summary"]["distance"])
             return distance
         except (json.JSONDecodeError, KeyError, IndexError, TypeError) as err:
             print(
@@ -213,83 +246,67 @@ def getDistORS(addrFrom, addrTo):
         exit(3)
 
 
-def findNearestStation(addrFromCoord, JCDDataReduced, flagEndMode):
-    nearestStation = min(JCDDataReduced, key=lambda station: getDistWithStation(
-        addrFromCoord, station, flagEndMode))
+def find_closest_station(coords_waypoint, JCD_data_reduced, end_mode_flag):
+    closest_station = min(JCD_data_reduced, key=lambda station: compute_distance_with_station(
+        coords_waypoint, station, end_mode_flag))
     print("trouvée !")
 
-    return nearestStation
+    return closest_station
 
 
-def main():
+def main(termux_api):
     CITY = "toulouse"
 
-    JCDData = []
-    JCDDataReduced = []
+    JCD_data = []
+    JCD_data_reduced = []
 
     print("Initialisation...", end='')
 
     # Ask the velÔToulouse API to get the list of stations with its coordinates
-    JCDData = getJCDDynamicData(CITY)
+    JCD_data = get_JCD_dynamic_data(CITY)
 
-    completeJCDStaticData(JCDData)
+    extend_JCD_static_data_for_processing(JCD_data)
 
     print("terminée.\n")
     time.sleep(0.5)
 
     # Ask if we want to go to the nearest station or if we are looking for the nearest station to drive to to go to a final address
     print("Mode Début de trajet activé\n🚶-🚩--🚴--🏁\n")
-    endMode = input(
+    end_mode_string = input(
         "Entrez F pour passer en mode Fin de trajet\n   🚩--🚴--🏁-🚶\n> ")
-    endMode = endMode.strip(" .\n\r\t").lower()
-    if endMode == "f":
-        flagEndMode = True
-        TEXT_INPUT_POSITION = "Adresse d'arrivée : "
+    end_mode_string = end_mode_string.strip(" .\n\r\t").lower()
+    if end_mode_string == "f":
+        end_mode_flag = True
+        input_label_string = "Adresse d'arrivée : "
         print("> Mode Fin de trajet\n")
     else:
-        flagEndMode = False
-        TEXT_INPUT_POSITION = "Adresse actuelle/de départ : "
+        end_mode_flag = False
+        input_label_string = "Adresse actuelle/de départ : "
         print("> Mode Début de trajet\n")
 
-    # Ask for current position
-    addrFrom = input(TEXT_INPUT_POSITION)
-    addrFrom = addrFrom.strip(" .\n\r\t")
-
-    # By default, add the city to the address
-    if CITY not in addrFrom.lower():
-        addrFrom = addrFrom+", " + CITY
-
-    print("")
-    if flagEndMode:
-        print("Recherche de la station la plus proche de l'adresse...", end='')
+    if termux_api:
+        coords_waypoint = ask_coords_to_termux_api()
     else:
-        print("Recherche de la station la plus proche...", end='')
+        coords_waypoint = ask_address_to_user_and_convert_them_in_coords(
+            input_label_string, CITY, end_mode_flag)
 
     try:
-        addrFromCoord = getCoordsFromAddr(addrFrom)
-        print("...", end='')
-    except CoordFormatting as err:
-        print(
-            f"\n[X] Erreur lors de la récupération des coordonnées de l'adresse: {err}")
-        exit(2)
-
-    try:
-        JCDDataReduced = reduceNumberOfStations(
-            addrFromCoord, JCDData)
+        JCD_data_reduced = reduce_number_of_stations(
+            coords_waypoint, JCD_data)
         print("...", end='')
 
     except ValueError as err:
         print(err)
         exit(3)
 
-    nearestStation = findNearestStation(
-        addrFromCoord, JCDDataReduced, flagEndMode)
+    nearest_station = find_closest_station(
+        coords_waypoint, JCD_data_reduced, end_mode_flag)
     time.sleep(1.0)
 
-    stationName = nearestStation["name"]
-    stationAddress = nearestStation["address"]
-    stationAvBikeStands = nearestStation["available_bike_stands"]
-    stationAvBikes = nearestStation["available_bikes"]
+    stationName = nearest_station["name"]
+    stationAddress = nearest_station["address"]
+    stationAvBikeStands = nearest_station["available_bike_stands"]
+    stationAvBikes = nearest_station["available_bikes"]
     print(
         f"\n> Station {stationName} ({stationAvBikes} vélo(s) disponible(s) / {stationAvBikeStands} place(s) libre(s))\n  Adresse : {stationAddress}")
 
@@ -297,7 +314,9 @@ def main():
 if __name__ == '__main__':
     print('- toutRoule - \n')
     parser = argparse.ArgumentParser(prog="toutRoule")
-    parser.add_argument('termux')
+    parser.add_argument('--termux', '-t', action='store_true', required=False,
+                        help='ask first Termux API to get device location')
+    args = parser.parse_args()
 
-    main()
+    main(args.termux)
     exit(0)
