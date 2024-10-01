@@ -148,11 +148,21 @@ def get_coords_from_addr(addr: str) -> str:
                     f"la réponse du serveur est tronquée, mal formattée, ou il manque les infos de latitude et longitude ({err})")
 
 
-def ask_coords_to_termux_api() -> str:
-    TERMUX_CMD_GPS = "termux-location -p gps -r once".split(' ')
-    TERMUX_CMD_NETWORK = "termux-location -p gps -r once"
+def ask_coords_to_termux_api() -> any:
+    coords = None
+    TERMUX_CMD_GPS = "termux-location -p gps -r last".split(' ')
     termux_response_gps = subprocess.run(
-        TERMUX_CMD_GPS, capture_output=True).stdout
+        TERMUX_CMD_GPS, capture_output=True)
+    if termux_response_gps.returncode == 0:
+        coords = None
+    else:
+        try:
+            termux_response_dict = json.loads(termux_response_gps.stdout)
+            if "latitude" in termux_response_dict and "longitude" in termux_response_dict:
+                coords = f"{termux_response_dict['latitude']},{termux_response_dict['longitude']}"
+        except json.JSONDecodeError:
+            pass
+    return coords
 
 
 def ask_address_to_user_and_convert_them_in_coords(input_label_string: str, CITY: str, end_mode_flag: bool) -> str:
@@ -285,7 +295,15 @@ def main(termux_api):
         print("> Mode Début de trajet\n")
 
     if termux_api:
+        print("Localisation en cours...", end='')
         coords_waypoint = ask_coords_to_termux_api()
+        if coords_waypoint == None:
+            print(" échouée. Veuillez rentrer l'adresse.")
+            time.sleep(0.5)
+            coords_waypoint = ask_address_to_user_and_convert_them_in_coords(
+                input_label_string, CITY, end_mode_flag)
+        else:
+            print(" réussie.")
     else:
         coords_waypoint = ask_address_to_user_and_convert_them_in_coords(
             input_label_string, CITY, end_mode_flag)
