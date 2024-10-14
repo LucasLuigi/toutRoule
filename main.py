@@ -270,6 +270,10 @@ def main(termux_api: bool, bikers_number: int):
     extend_JCD_static_data_for_processing(JCD_data)
 
     print("terminée.\n")
+
+    if bikers_number > 1:
+        time.sleep(0.25)
+        print(f"Vous n'êtes pas seul, activation du mode {bikers_number} cyclistes.\n")
     time.sleep(0.5)
 
     # Ask if we want to go to the nearest station or if we are looking for the nearest station to drive to to go to a final address
