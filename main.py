@@ -154,18 +154,18 @@ def ask_coords_to_termux_api() -> any:
     termux_response_gps = subprocess.run(
         TERMUX_CMD_GPS, capture_output=True)
     if termux_response_gps.returncode == 0:
-        coords = None
-    else:
         try:
             termux_response_dict = json.loads(termux_response_gps.stdout)
             if "latitude" in termux_response_dict and "longitude" in termux_response_dict:
-                coords = f"{termux_response_dict['latitude']},{termux_response_dict['longitude']}"
+                termux_lat = termux_response_dict['latitude']
+                termux_lon = termux_response_dict['longitude']
+                coords = f"{termux_lat},{termux_lon}"
         except json.JSONDecodeError:
             pass
     return coords
 
 
-def ask_address_to_user_and_convert_them_in_coords(input_label_string: str, CITY: str, end_mode_flag: bool) -> str:
+def ask_address_to_user_and_convert_them_in_coords(input_label_string: str, CITY: str) -> str:
     # Ask for current position
     address_input = input(input_label_string)
     address_input = address_input.strip(" .\n\r\t")
@@ -174,15 +174,8 @@ def ask_address_to_user_and_convert_them_in_coords(input_label_string: str, CITY
     if CITY not in address_input.lower():
         address_input = address_input+", " + CITY
 
-    print("")
-    if end_mode_flag:
-        print("Recherche de la station la plus proche de l'adresse...", end='')
-    else:
-        print("Recherche de la station la plus proche...", end='')
-
     try:
         coords_waypoint = get_coords_from_addr(address_input)
-        print("...", end='')
     except CoordFormatting as err:
         print(
             f"\n[X] Erreur lors de la récupération des coordonnées de l'adresse: {err}")
@@ -192,14 +185,13 @@ def ask_address_to_user_and_convert_them_in_coords(input_label_string: str, CITY
 
 # If we are in beginning mode, the station must have available bikes
 # If we are in end mode, the station must have available stands
-def compute_distance_with_station(coords_waypoint, station, end_mode_flag):
+def compute_distance_with_station(coords_waypoint: str, station: dict, bikers_number: int, end_mode_flag: bool):
     VERY_LONG_DISTANCE = 9999999999999999999999.0
-    MIN_AVAILABLE_BIKE = 1
-    MIN_AVAILABLE_BIKE_STANDS = 3
     MAX_SECONDS_SINCE_LAST_UPDATE = 1800
-
     NOW_IN_EPOCH_WITH_MS = int(time.time() * 1000)
 
+    max_available_bikes = bikers_number
+    max_available_bike_stands = 2 + bikers_number
     try:
         if station["status"] != "OPEN":
             return VERY_LONG_DISTANCE
@@ -207,12 +199,12 @@ def compute_distance_with_station(coords_waypoint, station, end_mode_flag):
         if NOW_IN_EPOCH_WITH_MS - station["last_update"] > 1000*MAX_SECONDS_SINCE_LAST_UPDATE:
             return VERY_LONG_DISTANCE
         if end_mode_flag:
-            if station["available_bike_stands"] < MIN_AVAILABLE_BIKE_STANDS:
+            if station["available_bike_stands"] < max_available_bike_stands:
                 return VERY_LONG_DISTANCE
             # Nearest distance between a station and the address
             return ask_ORS_to_compute_distance(station["coordinates"], coords_waypoint)
         else:
-            if station["available_bikes"] < MIN_AVAILABLE_BIKE:
+            if station["available_bikes"] < max_available_bikes:
                 return VERY_LONG_DISTANCE
             # Nearest distance the address and a station
             return ask_ORS_to_compute_distance(coords_waypoint, station["coordinates"])
@@ -248,7 +240,7 @@ def ask_ORS_to_compute_distance(coords_from: str, coords_to: str) -> float:
                 f"\n[X] Impossible de calculer la distance à pied entre les deux points: {err}")
             exit(3)
     elif resp.status_code == 429:
-        print(f"\n[X] Trop de requête, réessayez dans 1 minute")
+        print("\n[X] Trop de requête, réessayez dans 1 minute")
         exit(4)
     else:
         print(
@@ -256,15 +248,15 @@ def ask_ORS_to_compute_distance(coords_from: str, coords_to: str) -> float:
         exit(3)
 
 
-def find_closest_station(coords_waypoint, JCD_data_reduced, end_mode_flag):
+def find_closest_station(coords_waypoint: str, JCD_data_reduced: list, bikers_number: int, end_mode_flag: bool):
     closest_station = min(JCD_data_reduced, key=lambda station: compute_distance_with_station(
-        coords_waypoint, station, end_mode_flag))
+        coords_waypoint, station, bikers_number, end_mode_flag))
     print("trouvée !")
 
     return closest_station
 
 
-def main(termux_api):
+def main(termux_api: bool, bikers_number: int):
     CITY = "toulouse"
 
     JCD_data = []
@@ -301,12 +293,18 @@ def main(termux_api):
             print(" échouée. Veuillez rentrer l'adresse.")
             time.sleep(0.5)
             coords_waypoint = ask_address_to_user_and_convert_them_in_coords(
-                input_label_string, CITY, end_mode_flag)
+                input_label_string, CITY)
         else:
             print(" réussie.")
     else:
         coords_waypoint = ask_address_to_user_and_convert_them_in_coords(
-            input_label_string, CITY, end_mode_flag)
+            input_label_string, CITY)
+
+    print("")
+    if end_mode_flag:
+        print("Recherche de la station la plus proche de l'adresse...", end='')
+    else:
+        print("Recherche de la station la plus proche...", end='')
 
     try:
         JCD_data_reduced = reduce_number_of_stations(
@@ -318,7 +316,7 @@ def main(termux_api):
         exit(3)
 
     nearest_station = find_closest_station(
-        coords_waypoint, JCD_data_reduced, end_mode_flag)
+        coords_waypoint, JCD_data_reduced, bikers_number, end_mode_flag)
     time.sleep(1.0)
 
     stationName = nearest_station["name"]
@@ -334,7 +332,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog="toutRoule")
     parser.add_argument('--termux', '-t', action='store_true', required=False,
                         help='ask first Termux API to get device location')
+    parser.add_argument('--bikers', '-b', type=int, action='store', default=1, required=False,
+                        help='ask first Termux API to get device location')
     args = parser.parse_args()
 
-    main(args.termux)
+    main(args.termux, args.bikers)
     exit(0)
